@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Genjutsu Motion Transfer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #0f172a; color: #f8fafc; padding: 16px; display: flex; flex-direction: column; min-height: 100vh; }
+    header { text-align: center; margin-bottom: 20px; }
+    header h1 { font-size: 1.5rem; color: #38bdf8; }
+    header p { font-size: 0.85rem; color: #94a3b8; margin-top: 4px; }
+    
+    .card { background: #1e293b; border-radius: 16px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155; }
+    .card h2 { font-size: 1rem; margin-bottom: 10px; color: #e2e8f0; }
+
+    .file-input-wrapper {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #475569;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      background: #0f172a;
+      cursor: pointer;
+    }
+    .file-input-wrapper input[type="file"] {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .preview-item {
+      width: 100%; height: 100px; border-radius: 8px; object-fit: cover; background: #000;
+    }
+
+    button.btn-generate {
+      width: 100%;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      transition: active 0.1s;
+    }
+    button.btn-generate:active { transform: scale(0.98); }
+    button:disabled { background: #475569; cursor: not-allowed; box-shadow: none; }
+
+    .loading-container {
+      display: none;
+      text-align: center;
+      padding: 24px;
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #334155;
+      border-top: 4px solid #38bdf8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .result-container { display: none; }
+    video.result-video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Genjutsu Motion Transfer</h1>
+    <p>動作轉移與生成</p>
+  </header>
+
+  <form id="uploadForm">
+    <div class="card">
+      <h2>1. 上傳來源影片 (至少 4 秒)</h2>
+      <div class="file-input-wrapper">
+        <span id="videoStatus">點擊上傳動作影片 (.mp4)</span>
+        <input type="file" id="videoInput" accept="video/*" required>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. 上傳目標角色照片 (1 ~ 4 張)</h2>
+      <div class="file-input-wrapper">
+        <span id="imageStatus">點擊選擇照片 (最少 1 張，最多 4 張)</span>
+        <input type="file" id="imageInput" accept="image/*" multiple required>
+      </div>
+      <div class="preview-grid" id="imagePreviewGrid"></div>
+    </div>
+
+    <button type="submit" id="submitBtn" class="btn-generate">🚀 開始生成 Motion Transfer</button>
+  </form>
+
+  <div class="card loading-container" id="loadingBox">
+    <div class="spinner"></div>
+    <h3>AI 努力生成中...</h3>
+    <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 6px;">影片渲染與動作轉移需 1 ~ 3 分鐘，請勿關閉視窗</p>
+  </div>
+
+  <div class="card result-container" id="resultBox">
+    <h2>🎉 生成完成！</h2>
+    <video id="outputVideo" class="result-video" controls autoplay loop playsinline></video>
+    <a id="downloadBtn" href="#" download="motion_transfer.mp4">
+      <button class="btn-generate" style="background: #10b981;">⬇️ 下載成果影片</button>
+    </a>
+  </div>
+
+  <script>
+    const videoInput = document.getElementById('videoInput');
+    const imageInput = document.getElementById('imageInput');
+    const videoStatus = document.getElementById('videoStatus');
+    const imageStatus = document.getElementById('imageStatus');
+    const imagePreviewGrid = document.getElementById('imagePreviewGrid');
+    const uploadForm = document.getElementById('uploadForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const loadingBox = document.getElementById('loadingBox');
+    const resultBox = document.getElementById('resultBox');
+    const outputVideo = document.getElementById('outputVideo');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    videoInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        videoStatus.innerText = `已選擇影片: ${file.name}`;
+      }
+    });
+
+    imageInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length > 4) {
+        alert('最多只能選擇 4 張照片！');
+        imageInput.value = '';
+        imageStatus.innerText = '點擊選擇照片 (最少 1 張，最多 4 張)';
+        imagePreviewGrid.innerHTML = '';
+        return;
+      }
+
+      imageStatus.innerText = `已選擇 ${files.length} 張照片`;
+      imagePreviewGrid.innerHTML = '';
+
+      files.forEach(file => {
+        const img = document.createElement('img');
+        img.className = 'preview-item';
+        img.src = URL.createObjectURL(file);
+        imagePreviewGrid.appendChild(img);
+      });
+    });
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const videoFile = videoInput.files[0];
+      const imageFiles = imageInput.files;
+
+      if (!videoFile || imageFiles.length === 0) {
+        alert('請上傳影片與至少 1 張圖片！');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('video', videoFile);
+      for (let i = 0; i < imageFiles.length; i++) {
+        formData.append('images', imageFiles[i]);
+      }
+
+      uploadForm.style.display = 'none';
+      resultBox.style.display = 'none';
+      loadingBox.style.display = 'block';
+
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          loadingBox.style.display = 'none';
+          resultBox.style.display = 'block';
+          outputVideo.src = data.video_url;
+          downloadBtn.href = data.video_url;
+        } else {
+          alert('生成失敗: ' + (data.error || '未知錯誤'));
+          loadingBox.style.display = 'none';
+          uploadForm.style.display = 'block';
+        }
+      } catch (err) {
+        console.error(err);
+        alert('請求發生錯誤，請檢查網路連線。');
+        loadingBox.style.display = 'none';
+        uploadForm.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
